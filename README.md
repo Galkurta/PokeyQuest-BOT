@@ -11,7 +11,7 @@
 git clone https://github.com/Galkurta/PokeyQuest-BOT.git
 ```
 ```
-cd PockeyQuest-BOT
+cd PokeyQuest-BOT
 ```
 ```
 npm install
