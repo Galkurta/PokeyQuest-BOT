@@ -3,6 +3,7 @@ const path = require('path');
 const axios = require('axios');
 const colors = require('colors');
 const readline = require('readline');
+const { DateTime } = require('luxon');
 
 class PokeyQuest {
     headers(token = '') {
@@ -28,17 +29,15 @@ class PokeyQuest {
         return headers;
     }
 
-    log(msg) {
-        console.log(`[*] ${msg}`);
+    log(msg, color = 'white') {
+        console.log(`[*] ${msg}`[color]);
     }
 
-    async Countdown(seconds) {
-        for (let i = seconds; i >= 0; i--) {
-            const minutes = Math.floor(i / 60);
-            const remainingSeconds = i % 60;
+    async countdown(minutes) {
+        for (let i = minutes; i >= 0; i--) {
             readline.cursorTo(process.stdout, 0);
-            process.stdout.write(`[*] Waiting ${minutes} minutes and ${remainingSeconds} seconds to continue...`.yellow);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            process.stdout.write(`[*] Wait ${i} minute(s) to continue ...`.yellow);
+            await new Promise(resolve => setTimeout(resolve, 60000));
         }
         console.log('');
     }
@@ -70,7 +69,7 @@ class PokeyQuest {
             });
             return response.data;
         } catch (error) {
-            this.log(`Error: ${error.message}`.red);
+            this.log(`Error: ${error.message}`, 'red');
             return null;
         }
     }
@@ -85,14 +84,14 @@ class PokeyQuest {
             });
             return response.data;
         } catch (error) {
-            this.log(`Error: ${error.message}`.red);
+            this.log(`Error: ${error.message}`, 'red');
             return null;
         }
     }
 
     async postTapTap(token, count) {
         const url = 'https://api.pokey.quest/tap/tap';
-        const payload = { count: count };
+        const payload = { count };
 
         try {
             const response = await axios.post(url, payload, {
@@ -101,7 +100,7 @@ class PokeyQuest {
             });
             return response.data;
         } catch (error) {
-            this.log(`Error: ${error.message}`.red);
+            this.log(`Error: ${error.message}`, 'red');
             return null;
         }
     }
@@ -121,7 +120,7 @@ class PokeyQuest {
 
     async getNextLevel(token) {
         const url = 'https://api.pokey.quest/poke/get-next-level';
-
+    
         try {
             const response = await axios.get(url, {
                 headers: this.headers(token),
@@ -129,14 +128,14 @@ class PokeyQuest {
             });
             return response.data;
         } catch (error) {
-            this.log(`Error: ${error.message}`.red);
+            this.log(`Error: ${error.message}`, 'red');
             return null;
         }
     }
-
+    
     async upgradeLevel(token) {
         const url = 'https://api.pokey.quest/poke/upgrade';
-
+    
         try {
             const response = await axios.post(url, {}, {
                 headers: this.headers(token),
@@ -144,25 +143,77 @@ class PokeyQuest {
             });
             return response.data;
         } catch (error) {
-            this.log(`Error: ${error.message}`.red);
+            this.log(`Error: ${error.message}`, 'red');
             return null;
         }
     }
-
+    
     async checkAndUpgrade(token, balance) {
         let nextLevelData = await this.getNextLevel(token);
-
+    
         while (nextLevelData && nextLevelData.error_code === 'OK' && balance > nextLevelData.data.upgrade_cost) {
-            this.log(`Rising up ${nextLevelData.data.name}...`.green);
+            this.log(`Rising up ${nextLevelData.data.name}...`, 'green');
             
             let upgradeResponse = await this.upgradeLevel(token);
             if (upgradeResponse && upgradeResponse.error_code === 'OK') {
                 balance -= nextLevelData.data.upgrade_cost;
                 nextLevelData = upgradeResponse;
             } else {
-                this.log(`Upgrade failure: ${upgradeResponse ? upgradeResponse.error_code : 'No response data'}`.red);
+                this.log(`Upgrade failure: ${upgradeResponse ? upgradeResponse.error_code : 'No response data'}`, 'red');
                 break;
             }
+        }
+    }
+
+    async getFarmInfo(token) {
+        const url = 'https://api.pokey.quest/pokedex/farm-info';
+    
+        try {
+            const response = await axios.get(url, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`, 'red');
+            return null;
+        }
+    }
+    
+    async postFarm(token) {
+        const url = 'https://api.pokey.quest/pokedex/farm';
+    
+        try {
+            const response = await axios.post(url, {}, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`, 'red');
+            return null;
+        }
+    }
+    
+    async handleFarming(token) {
+        const farmInfo = await this.getFarmInfo(token);
+        if (farmInfo && farmInfo.error_code === 'OK') {
+            const { next_farm_time } = farmInfo.data;
+            const currentTime = DateTime.now().toMillis();
+    
+            if (currentTime > next_farm_time) {
+                this.log(`Farming now...`, 'yellow');
+                const farmResponse = await this.postFarm(token);
+                if (farmResponse && farmResponse.error_code === 'OK') {
+                    this.log(`Farm successful, Gold received: ${farmResponse.data.gold_reward.toString().white}`.green);
+                } else {
+                    this.log(`Farm failed: ${farmResponse ? farmResponse.error_code : 'No response data'}`, 'red');
+                }
+            } else {
+                this.log(`Next farm time: ${DateTime.fromMillis(next_farm_time).toLocaleString(DateTime.DATETIME_FULL)}`, 'yellow');
+            }
+        } else {
+            this.log(`Failed to get farm info: ${farmInfo ? farmInfo.error_code : 'No response data'}`, 'red');
         }
     }
 
@@ -185,7 +236,7 @@ class PokeyQuest {
             .split('\n')
             .filter(Boolean);
 
-        const nangcap = await this.askQuestion('Do you want to upgrade LV? (y/n): ');
+        const nangcap = await this.askQuestion('Do you want to upgrade LV? (Y/N): ');
         const hoinangcap = nangcap.toLowerCase() === 'y';
         const tokens = this.readTokens();
 
@@ -202,65 +253,64 @@ class PokeyQuest {
                         tokens[i + 1] = token;
                         this.writeTokens(tokens);
                     } else {
-                        this.log(`Login failed: ${apiResponse ? apiResponse.error_code : 'No response data'}`.red);
+                        this.log(`Login failed: ${apiResponse ? apiResponse.error_code : 'No response data'}`, 'red');
                         continue;
                     }
                 }
 
                 const userDetail = data.user;
                 console.log(`\n========== Account ${i + 1} | ${userDetail.first_name} ==========`.blue);
-
                 let syncResponse = await this.postTapSync(token);
 
-                while (syncResponse && syncResponse.error_code === 'OK') {
-                    const syncData = syncResponse.data;
-                    this.log(`Energy remaining: ${syncData.available_taps.toString().white}`.green);
+                if (syncResponse && syncResponse.error_code === 'OK') {
+                    let syncData = syncResponse.data;
+                    this.log(`Energy left: ${syncData.available_taps.toString().white}`.green);
                     this.log(`Balance: ${Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance)}`.cyan);
+
+                    await this.handleFarming(token);
+
+                    while (syncData.available_taps > 0) {
+                        if (syncData.available_taps < 50) {
+                            this.log(`Low energy (${syncData.available_taps}), switching account...`.red);
+                            break;
+                        }
+                        
+                        this.log(`Starting tap...`.white);
+                        const count = Math.min(Math.floor(Math.random() * (50 - 30 + 1)) + 30, syncData.available_taps);
+                        const tapResponse = await this.postTapTap(token, count);
+                    
+                        if (tapResponse && tapResponse.error_code === 'OK') {
+                            syncData = tapResponse.data;
+                            this.log(`Energy after tap: ${syncData.available_taps.toString().white}`.green);
+                            this.log(`Balance after tap: ${Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance)}`.cyan);
+                    
+                            if (syncData.dropped_cards.length > 0) {
+                                this.log(`Dropped Cards:`);
+                                syncData.dropped_cards.forEach(card => {
+                                    console.log(`    - Name: ${card.name.yellow}, Rare: ${card.rare}, Level: ${card.level}`);
+                                });
+                            } else {
+                                this.log(`No dropped cards.`, 'yellow');
+                            }
+                        } else {
+                            this.log(`Tap failed: ${tapResponse ? tapResponse.error_code : 'No response data'}`, 'red');
+                            break;
+                        }
+                    }
 
                     if (hoinangcap) {
                         await this.checkAndUpgrade(token, Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance));
                     }
-
-                    if (syncData.available_taps >= 50) {
-                        this.log(`Start tapping...`.white);
-                        const count = Math.floor(Math.random() * (50 - 30 + 1)) + 30;
-                        const tapResponse = await this.postTapTap(token, count);
-                
-                        if (tapResponse && tapResponse.error_code === 'OK') {
-                            const tapData = tapResponse.data;
-                            this.log(`Energy after tap: ${tapData.available_taps.toString().white}`.green);
-                            this.log(`Balance after tap: ${Math.floor(tapData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance)}`.cyan);
-                
-                            if (tapData.dropped_cards.length > 0) {
-                                this.log(`Dropped Cards:`.yellow);
-                                tapData.dropped_cards.forEach(card => {
-                                    console.log(`    - Name: ${card.name.yellow}, Rare: ${card.rare}, Level: ${card.level}`);
-                                });
-                            } else {
-                                this.log(`No dropped cards.`.yellow);
-                            }
-                            syncResponse = tapResponse;
-                        } else {
-                            this.log(`Tap failed: ${tapResponse ? tapResponse.error_code : 'No response data'}`.red);
-                            break; 
-                        }
-                    } else {
-                        this.log(`Low energy, switching to another account!`.red);
-                        break;
-                    }
+                } else {
+                    this.log(`Failed to get data: ${syncResponse ? syncResponse.error_code : 'No response data'}`, 'red');
                 }
 
-                if (syncResponse && syncResponse.error_code !== 'OK') {
-                    this.log(`Get user data failure: ${syncResponse.error_code}`.red);
-                }
             }
-            // Wait for 5 minutes before repeating the loop
-            await this.Countdown(300);
+            await this.countdown(5);  // 5 minutes
         }
     }
 }
 
-// Entry point
 if (require.main === module) {
     const pq = new PokeyQuest();
     pq.main().catch(err => {
