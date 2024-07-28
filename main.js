@@ -29,15 +29,15 @@ class PokeyQuest {
         return headers;
     }
 
-    log(msg, color = 'white') {
-        console.log(`[*] ${msg}`[color]);
+    log(msg) {
+        console.log(`[*] ${msg}`);
     }
 
-    async countdown(minutes) {
-        for (let i = minutes; i >= 0; i--) {
+    async Countdown(seconds) {
+        for (let i = seconds; i >= 0; i--) {
             readline.cursorTo(process.stdout, 0);
-            process.stdout.write(`[*] Wait ${i} minute(s) to continue ...`.yellow);
-            await new Promise(resolve => setTimeout(resolve, 60000));
+            process.stdout.write(`[*] Wait ${i} Seconds to continue ...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
         console.log('');
     }
@@ -91,7 +91,9 @@ class PokeyQuest {
 
     async postTapTap(token, count) {
         const url = 'https://api.pokey.quest/tap/tap';
-        const payload = { count };
+        const payload = {
+            count: count
+        };
 
         try {
             const response = await axios.post(url, payload, {
@@ -229,6 +231,112 @@ class PokeyQuest {
         }));
     }
 
+    async getCardList(token) {
+        const url = 'https://api.pokey.quest/pokedex/list';
+
+        try {
+            const response = await axios.get(url, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`);
+            return null;
+        }
+    }
+
+    async upgradeCard(token, cardId) {
+        const url = 'https://api.pokey.quest/pokedex/upgrade';
+        const payload = { card_id: cardId };
+
+        try {
+            const response = await axios.post(url, payload, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`);
+            return null;
+        }
+    }
+
+    async upgradeCards(token, balance, friend) {
+        const cardListResponse = await this.getCardList(token);
+
+        if (cardListResponse && cardListResponse.error_code === 'OK') {
+            const cards = cardListResponse.data.data;
+            for (let card of cards) {
+                if (card.amount >= card.amount_card && balance >= card.amount_gold && friend >= card.amount_friend) {
+                    this.log(`Upgrade card ${card.name} There is Rare ${card.rare}...`.yellow);
+                    const upgradeResponse = await this.upgradeCard(token, card.id);
+
+                    if (upgradeResponse && upgradeResponse.error_code === 'OK') {
+                        this.log(`Successful upgrade card ${card.name} to lv ${upgradeResponse.data.level}`.green);
+                        balance -= card.amount_gold;
+                        friend -= card.amount_friend;
+                    } else {
+                        this.log(`Successful upgrade card ${card.name}: ${upgradeResponse ? upgradeResponse.error_code : 'No response data'}`.red);
+                    }
+                }
+            }
+        } else {
+            this.log(`Can't get the card list: ${cardListResponse ? cardListResponse.error_code : 'No response data'}`.red);
+        }
+    }
+
+    async getReferralList(token) {
+        const url = 'https://api.pokey.quest/referral/list';
+    
+        try {
+            const response = await axios.get(url, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`);
+            return null;
+        }
+    }
+    
+    async claimFriendCashback(token, referralId) {
+        const url = 'https://api.pokey.quest/referral/claim-friend';
+        const payload = { friend_id: referralId };
+    
+        try {
+            const response = await axios.post(url, payload, {
+                headers: this.headers(token),
+                timeout: 5000
+            });
+            return response.data;
+        } catch (error) {
+            this.log(`Error: ${error.message}`);
+            return null;
+        }
+    }
+    
+    async handleFriendCashback(token) {
+        const referralList = await this.getReferralList(token);
+    
+        if (referralList && referralList.error_code === 'OK' && Array.isArray(referralList.data.data)) {
+            for (let referral of referralList.data.data) {
+                if (referral.friend_cashback >= 1) {
+                    const claimResponse = await this.claimFriendCashback(token, referral.id);
+    
+                    if (claimResponse && claimResponse.error_code === 'OK') {
+                        this.log(`Claimed $FRIEND for referral: ${referral.username}`.green);
+                    } else {
+                        this.log(`Claim $FRIEND failed: ${referral.username}, ${claimResponse ? claimResponse.error_code : 'No response data'}`.red);
+                    }
+                }
+            }
+        } else {
+            this.log(`Can't take a list of friends: ${referralList ? referralList.error_code : 'No response data'}`.red);
+        }
+    }
+
     async main() {
         const dataFile = path.join(__dirname, 'data.txt');
         const userData = fs.readFileSync(dataFile, 'utf8')
@@ -266,9 +374,12 @@ class PokeyQuest {
                     let syncData = syncResponse.data;
                     this.log(`Energy left: ${syncData.available_taps.toString().white}`.green);
                     this.log(`Balance: ${Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance)}`.cyan);
-
+                    this.log(`Balance FRIEND: ${Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'FRI').balance)}`.cyan);
                     await this.handleFarming(token);
-
+                    const balance = Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance);
+                    const friend = Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'FRI').balance);
+                    await this.handleFriendCashback(token);
+                    await this.upgradeCards(token, balance, friend);
                     while (syncData.available_taps > 0) {
                         if (syncData.available_taps < 50) {
                             this.log(`Low energy (${syncData.available_taps}), switching account...`.red);
@@ -302,11 +413,11 @@ class PokeyQuest {
                         await this.checkAndUpgrade(token, Math.floor(syncData.balance_coins.find(coin => coin.currency_symbol === 'GOL').balance));
                     }
                 } else {
-                    this.log(`Failed to get data: ${syncResponse ? syncResponse.error_code : 'No response data'}`, 'red');
+                    this.log(`Get user data failure: ${syncResponse ? syncResponse.error_code : 'No response data'}`, );
                 }
 
             }
-            await this.countdown(5);  // 5 minutes
+            await this.Countdown(60);
         }
     }
 }

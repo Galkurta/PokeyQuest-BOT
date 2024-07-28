@@ -3,6 +3,8 @@
 - Auto up lv
 - Auto tap
 - Auto claim farm
+- Auto claim friend refferal
+- Auto upgrade card
 - Support multi account
 - Register PockeyQuest [here](https://t.me/pokequest_bot/app?startapp=lgMcyMN13a)
 
