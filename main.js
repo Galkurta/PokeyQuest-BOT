@@ -53,7 +53,7 @@ class PokeyQuest {
         };
     }
 
-    async postToPokeyQuestAPI(data) {
+    async postToPokeyQuestAPI(data, retries = 3) {
         const url = 'https://api.pokey.quest/auth/login';
         const payload = {
             auth_date: data.auth_date,
@@ -61,19 +61,26 @@ class PokeyQuest {
             query_id: data.query_id,
             user: data.user
         };
-
-        try {
-            const response = await axios.post(url, payload, {
-                headers: this.headers(),
-                timeout: 5000
-            });
-            return response.data;
-        } catch (error) {
-            this.log(`Error: ${error.message}`, 'red');
-            return null;
+    
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const response = await axios.post(url, payload, {
+                    headers: this.headers(),
+                    timeout: 5000
+                });
+                return response.data;
+            } catch (error) {
+                if (error.response && error.response.status === 503 && attempt < retries) {
+                    this.log(`Server unavailable (503). Retrying attempt ${attempt}/${retries}...`, 'yellow');
+                    await new Promise(resolve => setTimeout(resolve, attempt * 2000)); // Exponential backoff
+                } else {
+                    this.log(`Error: ${error.message}`, 'red');
+                    return null;
+                }
+            }
         }
     }
-
+    
     async postTapSync(token) {
         const url = 'https://api.pokey.quest/tap/sync';
 
@@ -89,24 +96,31 @@ class PokeyQuest {
         }
     }
 
-    async postTapTap(token, count) {
+    async postTapTap(token, count, retries = 3) {
         const url = 'https://api.pokey.quest/tap/tap';
         const payload = {
             count: count
         };
-
-        try {
-            const response = await axios.post(url, payload, {
-                headers: this.headers(token),
-                timeout: 5000
-            });
-            return response.data;
-        } catch (error) {
-            this.log(`Error: ${error.message}`, 'red');
-            return null;
+    
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const response = await axios.post(url, payload, {
+                    headers: this.headers(token),
+                    timeout: 5000
+                });
+                return response.data;
+            } catch (error) {
+                if (error.response && error.response.status === 503 && attempt < retries) {
+                    this.log(`Server unavailable (503). Retrying attempt ${attempt}/${retries}...`, 'yellow');
+                    await new Promise(resolve => setTimeout(resolve, attempt * 2000)); // Exponential backoff
+                } else {
+                    this.log(`Tap failed: ${error.response ? error.response.status : 'No response data'}`, 'red');
+                    return null;
+                }
+            }
         }
     }
-
+    
     readTokens() {
         const tokenFile = path.join(__dirname, 'token.json');
         if (fs.existsSync(tokenFile)) {
